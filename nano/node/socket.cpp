@@ -14,7 +14,7 @@ tcp_socket{ node_a.io_ctx },
 node{ node_a },
 next_deadline{ std::numeric_limits<uint64_t>::max () },
 last_completion_time{ 0 },
-io_timeout{ node_a->config.tcp_io_timeout }
+io_timeout{ node_a.config.tcp_io_timeout }
 {
 }
 
@@ -193,7 +193,6 @@ nano::server_socket::server_socket (nano::node & node_a, boost::asio::ip::tcp::e
 socket{ node_a },
 acceptor{ node_a.io_ctx },
 local{ local_a },
-deferred_accept_timer{ node_a.io_ctx },
 max_inbound_connections{ max_connections_a }
 {
 	io_timeout = std::chrono::seconds::max ();
