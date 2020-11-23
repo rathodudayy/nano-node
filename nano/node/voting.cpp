@@ -87,9 +87,9 @@ bool nano::local_vote_history::exists (nano::root const & root_a) const
 
 void nano::local_vote_history::clean ()
 {
-	debug_assert (max_size > 0);
+	debug_assert (constants.max_cache > 0);
 	auto & history_by_sequence (history.get<tag_sequence> ());
-	while (history_by_sequence.size () > max_size)
+	while (history_by_sequence.size () > constants.max_cache)
 	{
 		history_by_sequence.erase (history_by_sequence.begin ());
 	}
@@ -99,6 +99,17 @@ size_t nano::local_vote_history::size () const
 {
 	nano::lock_guard<std::mutex> guard (mutex);
 	return history.size ();
+}
+
+bool nano::local_vote_history::votable (nano::root const & root_a) const
+{
+	bool result = true;
+	for (auto range = history.get<tag_root> ().equal_range (root_a); result && range.first != range.second; ++range.first)
+	{
+		auto & item = *range.first;
+		result = item.time < std::chrono::steady_clock::now () - constants.delay;
+	}
+	return result;
 }
 
 std::unique_ptr<nano::container_info_component> nano::collect_container_info (nano::local_vote_history & history, const std::string & name)
@@ -219,18 +230,27 @@ void nano::vote_generator::broadcast (nano::unique_lock<std::mutex> & lock_a)
 		}
 		if (cached_votes.empty ())
 		{
-			roots.push_back (root);
-			hashes.push_back (hash);
+			if (history.votable (root))
+			{
+				roots.push_back (root);
+				hashes.push_back (hash);
+			}
+			else
+			{
+				stats.inc (nano::stat::type::vote_generator, nano::stat::detail::generator_spacing);
+			}
 		}
 		candidates.pop_front ();
 	}
 	if (!hashes.empty ())
 	{
 		lock_a.unlock ();
-		vote (hashes, roots, [this](auto const & vote_a) { this->broadcast_action (vote_a); });
+		vote (hashes, roots, [this](auto const & vote_a) {
+			this->broadcast_action (vote_a);
+			this->stats.inc (nano::stat::type::vote_generator, nano::stat::detail::generator_broadcasts);
+		});
 		lock_a.lock ();
 	}
-	stats.inc (nano::stat::type::vote_generator, nano::stat::detail::generator_broadcasts);
 }
 
 void nano::vote_generator::reply (nano::unique_lock<std::mutex> & lock_a, request_t && request_a)
@@ -248,7 +268,8 @@ void nano::vote_generator::reply (nano::unique_lock<std::mutex> & lock_a, reques
 		roots.reserve (nano::network::confirm_ack_hashes_max);
 		for (; i != n && hashes.size () < nano::network::confirm_ack_hashes_max; ++i)
 		{
-			auto cached_votes = history.votes (i->first, i->second);
+			auto const & [root, hash] = *i;
+			auto cached_votes = history.votes (root, hash);
 			for (auto const & cached_vote : cached_votes)
 			{
 				if (cached_sent.insert (cached_vote).second)
@@ -260,8 +281,15 @@ void nano::vote_generator::reply (nano::unique_lock<std::mutex> & lock_a, reques
 			}
 			if (cached_votes.empty ())
 			{
-				roots.push_back (i->first);
-				hashes.push_back (i->second);
+				if (history.votable (root))
+				{
+					roots.push_back (root);
+					hashes.push_back (hash);
+				}
+				else
+				{
+					stats.inc (nano::stat::type::vote_generator, nano::stat::detail::generator_spacing);
+				}
 			}
 		}
 		if (!hashes.empty ())
