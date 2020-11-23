@@ -175,7 +175,6 @@ TEST (election, quorum_minimum_update_weight_before_quorum_checks)
 	nano::system system;
 	nano::node_config node_config (nano::get_available_port (), system.logging);
 	node_config.frontiers_confirmation = nano::frontiers_confirmation_mode::disabled;
-	node_config.online_weight_quorum = 100;
 	auto & node1 = *system.add_node (node_config);
 	system.wallet (0)->insert_adhoc (nano::dev_genesis_key.prv);
 	auto amount = node_config.online_weight_minimum.number () - 1;
